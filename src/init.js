@@ -49,7 +49,7 @@ export async function init(setupScene = () => {}, onFrame = () => {}) {
 	document.body.appendChild(container);
 
 	const scene = new THREE.Scene();
-	scene.background = new THREE.Color(0x808080);
+	scene.background = new THREE.Color(0x1a0505);
 
 	const camera = new THREE.PerspectiveCamera(
 		50,

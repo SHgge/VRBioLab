@@ -1,22 +1,19 @@
-<!-- 
-  Copyright (c) Meta Platforms, Inc. and affiliates.
-
-  This source code is licensed under the MIT license found in the
-  LICENSE file in the root directory of this source tree.
--->
 <!doctype html>
-<html lang="en">
+<html lang="mn">
 	<head>
-		<title>WebXR First Steps</title>
+		<title>VR BioLab - Зүрхний бүтэц</title>
 		<meta charset="utf-8" />
 		<meta
 			name="viewport"
 			content="width=device-width, initial-scale=1.0, user-scalable=no"
 		/>
-	</head>
-	<body style="margin: 0">
-		<div
-			style="
+		<style>
+			body {
+				margin: 0;
+				background: #1a0a0a;
+				overflow: hidden;
+			}
+			#info-bar {
 				position: fixed;
 				top: 10px;
 				width: 100vw;
@@ -24,23 +21,28 @@
 				flex-direction: column;
 				justify-content: center;
 				align-items: center;
-				color: white;
-			"
-		>
+				color: #ff9999;
+				font-family: 'Segoe UI', sans-serif;
+				font-size: 14px;
+				pointer-events: none;
+				z-index: 100;
+			}
+			#info-bar a {
+				color: #ffaaaa;
+				pointer-events: auto;
+			}
+			#info-bar .title {
+				font-size: 18px;
+				font-weight: bold;
+				margin-bottom: 4px;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="info-bar">
+			<div class="title">VR BioLab: Зүрхний бүтэц</div>
 			<div>
-				WebXR First Steps Tutorial -&nbsp;
-				<a href="https://github.com/meta-quest/webxr-first-steps">GitHub</a
-				>&nbsp;|&nbsp;<a
-					href="https://raw.githubusercontent.com/meta-quest/webxr-first-steps/main/LICENSE"
-					>MIT License</a
-				>
-			</div>
-
-			<div>
-				Copyright © Meta Platforms, Inc |
-
-				<a href="https://opensource.fb.com/legal/terms/">Terms</a>&nbsp;|&nbsp;
-				<a href="https://opensource.fb.com/legal/privacy/">Privacy</a>
+				Зүрхний дотор аялал | Trigger дарж эхлүүлнэ үү
 			</div>
 		</div>
 		<script type="module" src="./index.js"></script>
