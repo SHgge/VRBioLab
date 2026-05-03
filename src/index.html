@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="mn">
 	<head>
-		<title>VR BioLab - Зүрхний бүтэц</title>
+		<title>VR BioLab</title>
 		<meta charset="utf-8" />
 		<meta
 			name="viewport"
@@ -10,8 +10,9 @@
 		<style>
 			body {
 				margin: 0;
-				background: #1a0a0a;
+				background: #000;
 				overflow: hidden;
+				font-family: 'Segoe UI', sans-serif;
 			}
 			#info-bar {
 				position: fixed;
@@ -21,29 +22,61 @@
 				flex-direction: column;
 				justify-content: center;
 				align-items: center;
-				color: #ff9999;
-				font-family: 'Segoe UI', sans-serif;
+				color: #ffffff;
 				font-size: 14px;
 				pointer-events: none;
 				z-index: 100;
-			}
-			#info-bar a {
-				color: #ffaaaa;
-				pointer-events: auto;
 			}
 			#info-bar .title {
 				font-size: 18px;
 				font-weight: bold;
 				margin-bottom: 4px;
 			}
+
+			/* Loading overlay — covers the canvas until the first frame
+			   has rendered, then fades out over 600 ms. */
+			#loading-overlay {
+				position: fixed;
+				inset: 0;
+				z-index: 2000;
+				background: #0F1B2D;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				gap: 20px;
+				color: #cfd8e6;
+				transition: opacity 0.6s ease;
+				pointer-events: none;
+			}
+			#loading-overlay.hidden {
+				opacity: 0;
+			}
+			#loading-overlay .label {
+				font-size: 18px;
+				letter-spacing: 0.6px;
+			}
+			#loading-overlay .spinner {
+				width: 38px;
+				height: 38px;
+				border: 3px solid rgba(0, 229, 199, 0.2);
+				border-top-color: #00E5C7;
+				border-radius: 50%;
+				animation: spin 0.9s linear infinite;
+			}
+			@keyframes spin {
+				to { transform: rotate(360deg); }
+			}
 		</style>
 	</head>
 	<body>
+		<div id="loading-overlay">
+			<div class="spinner"></div>
+			<div class="label">Лаборатори ачааллаж байна…</div>
+		</div>
 		<div id="info-bar">
-			<div class="title">VR BioLab: Зүрхний бүтэц</div>
-			<div>
-				Зүрхний дотор аялал | Trigger дарж эхлүүлнэ үү
-			</div>
+			<div class="title">VR BioLab</div>
+			<div>WebXR + Three.js</div>
 		</div>
 		<script type="module" src="./index.js"></script>
 	</body>

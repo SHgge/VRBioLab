@@ -7,14 +7,17 @@
 
 import * as THREE from 'three';
 
-import { XRDevice, metaQuest3 } from 'iwer';
-
 import { DevUI } from '@iwer/devui';
 import { GamepadWrapper } from 'gamepad-wrapper';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { Text } from 'troika-three-text';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+// eslint-disable-next-line sort-imports
+import { XRDevice, metaQuest3 } from 'iwer';
+// eslint-disable-next-line sort-imports
+import Stats from 'three/addons/libs/stats.module.js';
 
 export async function init(setupScene = () => {}, onFrame = () => {}) {
 	// iwer setup
@@ -57,23 +60,46 @@ export async function init(setupScene = () => {}, onFrame = () => {}) {
 		0.1,
 		100,
 	);
-	camera.position.set(0, 1.6, 3);
+	// Camera is local to the player anchor (added below). Natural adult
+	// eye-height ≈ 1.65 m so the user starts standing in front of the
+	// bench and can lean down to peer through the microscope eyepiece —
+	// matching the real-world ergonomics of a school biology lab.
+	camera.position.set(0, 1.68, 0);
 
 	const controls = new OrbitControls(camera, container);
-	controls.target.set(0, 1.6, 0);
+	// Target world (0.2, 1.18, 0.27) — the microscope eyepiece centroid,
+	// so the desktop camera frames the microscope right out of the gate.
+	// Player feet sit at world (0.2, 0, 0.70); subtract for local space.
+	controls.target.set(0.2 - 0.2, 1.18, 0.27 - 0.70);
 	controls.update();
 
-	const renderer = new THREE.WebGLRenderer({ antialias: true });
-	renderer.setPixelRatio(window.devicePixelRatio);
+	const renderer = new THREE.WebGLRenderer({
+		antialias: true,
+		powerPreference: 'high-performance',
+	});
+	// Cap pixel ratio at 1.5 — anything higher chews Quest 3S GPU budget
+	// without a visible quality gain after foveated rendering kicks in.
+	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 	renderer.setSize(window.innerWidth, window.innerHeight);
 	renderer.xr.enabled = true;
+	// Maximum foveated rendering — peripheral pixels render at lower
+	// resolution while the centre stays sharp. Saves ~30% GPU on Quest 3S.
+	if (typeof renderer.xr.setFoveation === 'function') {
+		renderer.xr.setFoveation(1.0);
+	}
 	container.appendChild(renderer.domElement);
 
 	const environment = new RoomEnvironment(renderer);
 	const pmremGenerator = new THREE.PMREMGenerator(renderer);
 	scene.environment = pmremGenerator.fromScene(environment).texture;
 
+	// Player anchor — feet at world (0.2, 0, 0.70). With the camera's
+	// 1.65 m local Y, the user's eye sits at world (0.2, 1.65, 0.70) —
+	// natural standing height in front of the bench, looking forward
+	// at the microscope (centred at world (0.2, ≈1.18, 0.27)).
 	const player = new THREE.Group();
+	player.name = 'Player';
+	player.position.set(0.2, 0, 0.70);
 	scene.add(player);
 	player.add(camera);
 
@@ -128,6 +154,34 @@ export async function init(setupScene = () => {}, onFrame = () => {}) {
 
 	setupScene(globals);
 
+	// ── Performance HUD (desktop) ──
+	// Stats.js shows FPS / frame-time / memory in the top-left corner.
+	// Click the panel to cycle metrics.
+	const stats = new Stats();
+	stats.dom.style.position = 'fixed';
+	stats.dom.style.top = '8px';
+	stats.dom.style.left = '8px';
+	stats.dom.style.zIndex = '1000';
+	document.body.appendChild(stats.dom);
+
+	// ── Performance HUD (in-VR) ──
+	// Troika 3D text floats at the lower-right of the headset view; updates
+	// twice per second so the readout doesn't flicker every frame.
+	const fpsText = new Text();
+	fpsText.text = 'FPS --';
+	fpsText.fontSize = 0.022;
+	fpsText.color = 0x00e5c7;
+	fpsText.outlineWidth = 0.0015;
+	fpsText.outlineColor = 0x000000;
+	fpsText.anchorX = 'right';
+	fpsText.anchorY = 'bottom';
+	fpsText.position.set(0.30, -0.20, -0.6);
+	fpsText.sync();
+	camera.add(fpsText);
+
+	let fpsAccDelta = 0;
+	let fpsAccFrames = 0;
+
 	const clock = new THREE.Clock();
 	function animate() {
 		const delta = clock.getDelta();
@@ -139,6 +193,21 @@ export async function init(setupScene = () => {}, onFrame = () => {}) {
 		});
 		onFrame(delta, time, globals);
 		renderer.render(scene, camera);
+
+		// FPS sample (every 0.5 s — half-second smoothing avoids jitter)
+		fpsAccDelta += delta;
+		fpsAccFrames++;
+		if (fpsAccDelta >= 0.5) {
+			const fps = Math.round(fpsAccFrames / fpsAccDelta);
+			const ms = (1000 / Math.max(fps, 1)).toFixed(1);
+			fpsText.text = `FPS ${fps}  •  ${ms} ms`;
+			fpsText.color =
+				fps >= 70 ? 0x00e5c7 : fps >= 50 ? 0xffd24a : 0xff5577;
+			fpsText.sync();
+			fpsAccDelta = 0;
+			fpsAccFrames = 0;
+		}
+		stats.update();
 	}
 
 	renderer.setAnimationLoop(animate);
