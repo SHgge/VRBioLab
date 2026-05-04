@@ -179,10 +179,12 @@ const STEPS = [
 		instruction: '10× линз руу СЭЛГЭ',
 		help:
 			'1) Сэлгүүрийг гар-аар бариад эргүүл.\n' +
-			'2) ШАР ТУУЗТАЙ 10× доош ирнэ.\n' +
-			'3) Дахин ТОМ дамраар тодрууул.',
+			'2) ШАР ТУУЗТАЙ 10× линз доошоо ирнэ.\n' +
+			'3) Сонгогдмогц дараагийн алхам нээгдэнэ.',
 		highlightParts: ['Microscope_Nosepiece', 'Microscope_Objective_10x'],
-		isMet: (s) => s.objectiveIndex >= 1 && Math.abs(s.focus - 0.5) < 0.05,
+		// Advance the moment the kid lands on 10× — no focus check.
+		// They'll re-focus naturally when they look through.
+		isMet: (s) => s.objectiveIndex >= 1,
 		onComplete: (optics) => optics.setObjectiveMin(1),
 	},
 	{
@@ -284,7 +286,10 @@ export function startExplore({
 	}
 	optics.setControllers(vrControllers);
 
-	// Side panel
+	// Side panel — kept in code as a desktop fallback but HIDDEN in
+	// VR. The workflow callouts + LIVE VIEW + warning panel + on-mic
+	// hover-highlights cover everything the kid needs without the
+	// big "СУДЛАХ" panel cluttering their view.
 	const sidePanel = new Panel({
 		width: SIDE_PANEL_W,
 		height: SIDE_PANEL_H,
@@ -293,14 +298,15 @@ export function startExplore({
 		pixelScale: 2,
 	});
 	sidePanel.mesh.position.copy(SIDE_PANEL_POS);
+	sidePanel.mesh.visible = false;
+	sidePanel.disabled = true;
 	scene.add(sidePanel.mesh);
 	const sideHandle = {
 		panel: sidePanel,
 		setHover: (id) => sidePanel.setHover(id),
 		dispose: () => sidePanel.dispose(),
 	};
-	if (interactions) interactions.registerPanel(sideHandle);
-	sidePanel.onHoverChange = () => renderSidePanel();
+	// NOT registering with interactions — the panel is hidden, no rays.
 
 	_state = {
 		scene, camera, renderer, microscope, interactions, onExit,
@@ -328,6 +334,13 @@ export function startExplore({
 		// the stage is empty or the clips are released. Built lazily.
 		warnPanel: null,
 		warnLastShown: null, // 'no-slide' | 'no-clips' | null
+		// Objective-change notification: shows a small "10× — шар тууз"
+		// banner for ~2 s whenever the kid rotates the nosepiece. Built
+		// lazily on the first change so we don't pay for a Panel /
+		// CanvasTexture if the kid never touches the nosepiece.
+		objNotice: null,
+		objNoticeTimer: 0,
+		objLastIndex: 0,
 	};
 
 	applyStepHighlight();
@@ -351,6 +364,7 @@ export function stopExplore() {
 	_state.sidePanel.dispose();
 	if (_state.summaryPanel) _state.summaryPanel.dispose();
 	disposeWarnPanel();
+	disposeObjectiveNotice();
 	_state.optics.dispose();
 	_state.slides.dispose();
 
@@ -439,6 +453,17 @@ export function updateExplore(delta, time) {
 	// hasn't put a new one back), we float a panel near the microscope
 	// reminding them what's missing.
 	if (_state.freeMode) updateFreeModeWarning();
+
+	// Objective-change banner: pop a small label whenever the kid
+	// rotates the nosepiece. Auto-hides after 2 s.
+	if (optState.objectiveIndex !== _state.objLastIndex) {
+		showObjectiveNotice(optState.objectiveIndex);
+		_state.objLastIndex = optState.objectiveIndex;
+	}
+	if (_state.objNoticeTimer > 0) {
+		_state.objNoticeTimer -= delta;
+		if (_state.objNoticeTimer <= 0) hideObjectiveNotice();
+	}
 
 	faceCamera(_state.sidePanel.mesh, _state.camera);
 	if (_state.summaryPanel) faceCamera(_state.summaryPanel.mesh, _state.camera);
@@ -863,6 +888,72 @@ function disposeWarnPanel() {
 		_state.warnPanel.dispose();
 		_state.warnPanel = null;
 		_state.warnLastShown = null;
+	}
+}
+
+// =====================================================================
+// OBJECTIVE-CHANGE NOTIFICATION
+// =====================================================================
+
+const OBJ_INFO = [
+	{ label: '4× — улаан тууз',     subline: 'Хамгийн бага өсгөлт · нийт 40×',  color: '#ff7a6b' },
+	{ label: '10× — шар тууз',      subline: 'Дунд өсгөлт · нийт 100×',         color: '#ffd248' },
+	{ label: '40× — цэнхэр тууз',   subline: 'Өндөр өсгөлт · НАРИЙН фокус',      color: '#5fa5d6' },
+	{ label: '100× — цагаан тууз',  subline: 'Хамгийн их өсгөлт · 1000×',        color: '#fafafa' },
+];
+
+const OBJ_NOTICE_W = 0.34;
+const OBJ_NOTICE_H = 0.10;
+const OBJ_NOTICE_DURATION = 2.0;
+
+function showObjectiveNotice(index) {
+	if (!_state) return;
+	if (!_state.objNotice) {
+		const panel = new Panel({
+			width: OBJ_NOTICE_W,
+			height: OBJ_NOTICE_H,
+			canvasW: 768,
+			canvasH: 224,
+			pixelScale: 2,
+		});
+		// Floats just to the right of the microscope at gaze height.
+		panel.mesh.position.set(0.50, 1.45, 0.20);
+		const lookAt = new THREE.Vector3(0.20, 1.45, 0.70);
+		panel.mesh.lookAt(lookAt);
+		panel.mesh.renderOrder = 13;
+		panel.mesh.visible = false;
+		_state.scene.add(panel.mesh);
+		_state.objNotice = panel;
+	}
+	const data = OBJ_INFO[index] || OBJ_INFO[0];
+	const panel = _state.objNotice;
+	const ctx = panel.ctx;
+	panel.clear();
+	panel.drawBackground('rgba(15, 22, 34, 0.96)', data.color);
+
+	ctx.font = 'bold 56px sans-serif';
+	ctx.fillStyle = data.color;
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.fillText(data.label, 384, 80);
+
+	ctx.font = '26px sans-serif';
+	ctx.fillStyle = '#cfdbe5';
+	ctx.fillText(data.subline, 384, 160);
+
+	panel.update();
+	panel.mesh.visible = true;
+	_state.objNoticeTimer = OBJ_NOTICE_DURATION;
+}
+
+function hideObjectiveNotice() {
+	if (_state && _state.objNotice) _state.objNotice.mesh.visible = false;
+}
+
+function disposeObjectiveNotice() {
+	if (_state && _state.objNotice) {
+		_state.objNotice.dispose();
+		_state.objNotice = null;
 	}
 }
 

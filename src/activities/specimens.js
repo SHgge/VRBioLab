@@ -224,21 +224,24 @@ function drawBloodCell(ctx, w, h, mag) {
 	// frames — same magnification, same layout.
 	const rng = mulberry32(0x9e37);
 
-	const count = Math.round((w * h) / Math.max(40, rbcR * rbcR * 8));
+	// Cap count to keep low-mag draws fast. At 4×/10× the formula gave
+	// 5000+ cells which baked the framerate (each radial gradient =
+	// expensive). 600 cells fills the field of view cleanly without
+	// individual gaps.
+	const rawCount = Math.round((w * h) / Math.max(40, rbcR * rbcR * 8));
+	const count = Math.min(600, rawCount);
+
+	// Pre-render a single blood-cell sprite once per draw pass and
+	// stamp it via drawImage. drawImage is ~10-50× faster than
+	// createRadialGradient + arc + fill per cell.
+	const sprite = getBloodCellSprite(rbcR);
+	const sw = sprite.width;
 	for (let i = 0; i < count; i++) {
 		const x = rng() * w;
 		const y = rng() * h;
-		const r = rbcR * (0.85 + rng() * 0.3);
-
-		// Red biconcave disc — radial gradient with paler centre.
-		const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-		g.addColorStop(0, '#e87a7a');     // pale dimple
-		g.addColorStop(0.55, '#c63333');
-		g.addColorStop(1, '#7a1818');
-		ctx.fillStyle = g;
-		ctx.beginPath();
-		ctx.arc(x, y, r, 0, Math.PI * 2);
-		ctx.fill();
+		const scale = 0.85 + rng() * 0.3;
+		const drawW = sw * scale;
+		ctx.drawImage(sprite, x - drawW / 2, y - drawW / 2, drawW, drawW);
 	}
 
 	// A handful of larger white blood cells (lobed nucleus).
@@ -329,9 +332,12 @@ function drawPlantLeaf(ctx, w, h, mag) {
 	ctx.fillRect(0, 0, w, h);
 
 	// Cell wall mosaic — irregular polygons clustered loosely on a grid.
-	const cellSize = (50 / 40) * mag;
-	const cols = Math.ceil(w / cellSize) + 2;
-	const rows = Math.ceil(h / cellSize) + 2;
+	// Floor cellSize so low-mag (4×/10×) doesn't generate hundreds of
+	// tiny polygons that nuke the framerate. 35 px is the smallest
+	// cell we draw — anything tinier is invisible anyway.
+	const cellSize = Math.max(35, (50 / 40) * mag);
+	const cols = Math.min(20, Math.ceil(w / cellSize) + 2);
+	const rows = Math.min(20, Math.ceil(h / cellSize) + 2);
 	const rng = mulberry32(0x4321);
 
 	ctx.lineWidth = Math.max(1, cellSize * 0.025);
@@ -436,6 +442,32 @@ function drawIrregularPolygon(ctx, cx, cy, r, sides, rng) {
 		else ctx.lineTo(x, y);
 	}
 	ctx.closePath();
+}
+
+/** Pre-rendered red-blood-cell sprite, keyed by integer radius bucket
+ *  so close mag values share the same texture. drawImage stamping is
+ *  ~10-50× cheaper than recreating a radial gradient per cell. */
+const _bloodCache = new Map();
+function getBloodCellSprite(rbcR) {
+	// Bucket by 2-px radius so we don't blow up the cache.
+	const key = Math.max(2, Math.round(rbcR / 2) * 2);
+	let sprite = _bloodCache.get(key);
+	if (sprite) return sprite;
+	const size = Math.ceil(key * 2.4);
+	sprite = document.createElement('canvas');
+	sprite.width = size; sprite.height = size;
+	const c = sprite.getContext('2d');
+	const cx = size / 2;
+	const g = c.createRadialGradient(cx, cx, 0, cx, cx, key);
+	g.addColorStop(0.00, '#e87a7a');
+	g.addColorStop(0.55, '#c63333');
+	g.addColorStop(1.00, '#7a1818');
+	c.fillStyle = g;
+	c.beginPath();
+	c.arc(cx, cx, key, 0, Math.PI * 2);
+	c.fill();
+	_bloodCache.set(key, sprite);
+	return sprite;
 }
 
 /** Deterministic PRNG — same seed → same sequence. */
