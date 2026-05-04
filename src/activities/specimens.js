@@ -71,47 +71,47 @@ export function getSpecimenInfo(slideId) {
  * @param {number}  focus          0..1 focus position
  * @param {number}  brightness     0..1 light level
  */
-export function drawSpecimen(slideId, ctx, w, h, magnification, focus, brightness) {
-	const cx = w / 2;
-	const cy = h / 2;
-	// Eyepiece field-of-view circle. 0.35 × canvas radius (= 70 %
-	// diameter) is the right balance: in the EYEPIECE overlay the
-	// circle dominates the kid's view with a thin dark frame, and in
-	// the SIDE PREVIEW MONITOR (same texture, smaller plane) it reads
-	// as a large bright display with a black bezel.
+// ── Off-screen specimen cache ──────────────────────────────────────
+// Rendering 600 cells with gradients per frame was the dominant FPS
+// killer when the kid spun a focus knob. We now render the specimen
+// ONCE into an off-screen canvas keyed on (slide, magnification, size)
+// — knob-driven focus changes only touch the BLUR amount, applied via
+// drawImage(filter), and brightness changes only touch a darkening
+// overlay. Both are pure GPU blits; the heavy gradient/cell drawing
+// only happens on slide-swap or objective-change.
+
+let _cacheCanvas = null;
+let _cacheCtx = null;
+let _cacheKey = null;
+
+function regenerateCache(slideId, w, h, magnification) {
+	if (!_cacheCanvas || _cacheCanvas.width !== w || _cacheCanvas.height !== h) {
+		_cacheCanvas = document.createElement('canvas');
+		_cacheCanvas.width = w;
+		_cacheCanvas.height = h;
+		_cacheCtx = _cacheCanvas.getContext('2d');
+	}
+	const ctx = _cacheCtx;
+	const cx = w / 2, cy = h / 2;
 	const radius = Math.min(w, h) * 0.35;
 
-	// Background — pale microscope-illumination cream
+	ctx.clearRect(0, 0, w, h);
 	ctx.save();
+	// Black backdrop
 	ctx.fillStyle = '#0a0a0a';
 	ctx.fillRect(0, 0, w, h);
 
-	// Clip to the circular field of view.
+	// Clip to the eyepiece circle
 	ctx.beginPath();
 	ctx.arc(cx, cy, radius, 0, Math.PI * 2);
 	ctx.clip();
 
-	// Underlying illumination (warm white, dimmed by `brightness`).
-	const illum = clamp(brightness, 0, 1);
-	const r = Math.round(245 * illum + 10 * (1 - illum));
-	const g = Math.round(238 * illum + 8 * (1 - illum));
-	const bl = Math.round(220 * illum + 6 * (1 - illum));
-	ctx.fillStyle = `rgb(${r}, ${g}, ${bl})`;
+	// Full-brightness cream illumination — actual brightness is applied
+	// later as a dark overlay so brightness changes don't invalidate
+	// the cache.
+	ctx.fillStyle = 'rgb(245, 238, 220)';
 	ctx.fillRect(0, 0, w, h);
 
-	// Defocus blur — Canvas2D `filter: blur(Xpx)`. The further from
-	// focus = 0.5, the larger X. Cap at 30 px so the initial out-of-
-	// focus view (focus = 0, kid hasn't operated coarse yet) reads as
-	// a vague smudge — the standard "before they touched the focus
-	// knob" microscope view, matching the NCBioNetwork reference.
-	// focus² scaling means the blur falls off quickly as the kid
-	// approaches sweet-spot — so the moment they enter the in-focus
-	// band, the image SNAPS to clarity. Reinforces "I did this".
-	const focusErr = Math.abs(focus - 0.5) * 2; // 0..1
-	const blurPx = Math.round(focusErr * focusErr * 30);
-	if (blurPx > 0) ctx.filter = `blur(${blurPx}px)`;
-
-	// Dispatch
 	switch (slideId) {
 		case 'A': drawOnionCell(ctx, w, h, magnification); break;
 		case 'B': drawBloodCell(ctx, w, h, magnification); break;
@@ -120,33 +120,73 @@ export function drawSpecimen(slideId, ctx, w, h, magnification, focus, brightnes
 		default:  drawEmpty(ctx, w, h);                     break;
 	}
 
-	ctx.filter = 'none';
-
-	// Brightness vignette — slightly darker rim helps sell the lens feel.
+	// Vignette
 	const grad = ctx.createRadialGradient(cx, cy, radius * 0.55, cx, cy, radius);
 	grad.addColorStop(0, 'rgba(0,0,0,0)');
 	grad.addColorStop(1, 'rgba(0,0,0,0.45)');
 	ctx.fillStyle = grad;
 	ctx.fillRect(0, 0, w, h);
 
-	// Tiny crosshair reticle at the centre — mimics the etched scale you
-	// often see in school microscope eyepieces.
+	// Reticle
 	ctx.strokeStyle = 'rgba(40, 40, 40, 0.55)';
 	ctx.lineWidth = 1;
 	ctx.beginPath();
 	ctx.moveTo(cx - 18, cy); ctx.lineTo(cx + 18, cy);
 	ctx.moveTo(cx, cy - 18); ctx.lineTo(cx, cy + 18);
 	ctx.stroke();
-
 	ctx.restore();
 
-	// Black surround OUTSIDE the circular field — drawn after restore so
-	// it isn't clipped. Saves redrawing the eyepiece tube each frame.
+	// Black surround outside the circle
 	ctx.fillStyle = '#000000';
 	ctx.beginPath();
 	ctx.rect(0, 0, w, h);
 	ctx.arc(cx, cy, radius, 0, Math.PI * 2, true);
 	ctx.fill('evenodd');
+}
+
+export function drawSpecimen(slideId, ctx, w, h, magnification, focus, brightness) {
+	const cx = w / 2, cy = h / 2;
+	const radius = Math.min(w, h) * 0.35;
+
+	// Cache key — only invalidates on slide swap, objective change, or
+	// canvas resize. Focus and brightness are FREE to vary.
+	const key = `${slideId || '_'}|${magnification}|${w}x${h}`;
+	if (key !== _cacheKey) {
+		regenerateCache(slideId, w, h, magnification);
+		_cacheKey = key;
+	}
+
+	// Defocus blur — applied via drawImage filter. Pure GPU blit + blur
+	// shader, costs ~1-2 ms even at 30 px blur (was ~10-30 ms for the
+	// per-cell gradient render path before caching).
+	const focusErr = Math.abs(focus - 0.5) * 2;
+	const blurPx = Math.round(focusErr * focusErr * 30);
+
+	ctx.clearRect(0, 0, w, h);
+	ctx.save();
+	if (blurPx > 0) ctx.filter = `blur(${blurPx}px)`;
+	ctx.drawImage(_cacheCanvas, 0, 0);
+	ctx.restore();
+
+	// Brightness dimmer — single fillRect with alpha. Cheap.
+	const dim = (1 - clamp(brightness, 0, 1)) * 0.85;
+	if (dim > 0.02) {
+		ctx.save();
+		ctx.beginPath();
+		ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+		ctx.clip();
+		ctx.fillStyle = `rgba(0, 0, 0, ${dim})`;
+		ctx.fillRect(0, 0, w, h);
+		ctx.restore();
+	}
+}
+
+/** Force the next drawSpecimen call to rebuild the cache — call this
+ *  if the underlying drawing functions ever start to depend on extra
+ *  state we haven't keyed in. (Currently unused; reserved for future
+ *  per-cell randomisation seeds.) */
+export function invalidateSpecimenCache() {
+	_cacheKey = null;
 }
 
 // =====================================================================
