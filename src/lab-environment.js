@@ -1811,6 +1811,44 @@ function makePeriodicTablePoster() {
 	return group;
 }
 
+/** Wall poster — `assets/indra.jpg` mounted on the north wall behind
+ *  the launch / mode-select menu. Self-illuminating so it stays bright
+ *  regardless of room lighting; double-sided so the kid still sees it
+ *  if they end up behind the wall plane. Fallback colour is bright
+ *  cyan so a missing texture is OBVIOUS instead of failing silently. */
+function makeIndraPoster() {
+	const w = 1.2, h = 1.2;
+
+	const mat = new THREE.MeshBasicMaterial({
+		color: 0x00e5c7,        // visible cyan fallback if asset fails
+		side: THREE.DoubleSide, // safe regardless of plane facing
+		toneMapped: false,
+	});
+
+	const loader = new THREE.TextureLoader();
+	loader.load(
+		'assets/indra.jpg',
+		(tex) => {
+			tex.colorSpace = THREE.SRGBColorSpace;
+			tex.minFilter = THREE.LinearFilter;
+			tex.magFilter = THREE.LinearFilter;
+			tex.anisotropy = 8;
+			tex.generateMipmaps = false;
+			mat.map = tex;
+			mat.color.setHex(0xffffff); // un-tint once the real image arrives
+			mat.needsUpdate = true;
+		},
+		undefined,
+		(err) => {
+			console.warn('[IndraPoster] failed to load assets/indra.jpg', err);
+		},
+	);
+
+	const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+	plane.name = 'IndraPoster';
+	return plane;
+}
+
 /** Whiteboard with marker tray and faint ghosting. */
 function makeWhiteboard() {
 	const group = new THREE.Group();
@@ -2467,6 +2505,14 @@ export function createLabEnvironment(scene, renderer) {
 	const periodic = makePeriodicTablePoster();
 	periodic.position.set(-1.4, 2.0, -ROOM.d / 2 + 0.015);
 	decorGroup.add(periodic);
+
+	// School-identity poster (assets/indra.jpg) mounted high-centre
+	// on the north wall, well above the launch panel so both read
+	// cleanly. 5 cm proud of the wall to dodge any z-fighting with
+	// the dado tile + paint planes.
+	const indra = makeIndraPoster();
+	indra.position.set(0, 2.20, -ROOM.d / 2 + 0.05);
+	decorGroup.add(indra);
 
 	// Wall items — south wall (faces -Z)
 	const board = makeWhiteboard();

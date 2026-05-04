@@ -346,7 +346,7 @@ function renderTooltip(partName) {
 	tooltip.ctx.textAlign = 'center';
 	tooltip.ctx.textBaseline = 'middle';
 	tooltip.ctx.fillText(
-		isDone ? 'Танигдсан ✓' : 'Тогноогүй',
+		isDone ? 'Танигдсан ✓' : 'Танигдаагүй ✗',
 		TOOLTIP_CANVAS_W / 2,
 		TOOLTIP_CANVAS_H - 36,
 	);
