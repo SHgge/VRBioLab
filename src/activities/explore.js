@@ -36,6 +36,7 @@ import * as THREE from 'three';
 import {
 	clearHighlight,
 	highlightPart,
+	prewarmHighlights,
 	updateHighlights,
 } from '../microscope/highlight.js';
 import { playStepDing, playSweetSpotChime } from '../core/audio.js';
@@ -342,6 +343,25 @@ export function startExplore({
 		objNoticeTimer: 0,
 		objLastIndex: 0,
 	};
+
+	// Pre-warm material clones + force their shaders to compile on the
+	// GPU before the kid starts interacting. Without this, the first
+	// hover-highlight in free mode triggers a shader compile per mesh
+	// — that's the stutter the user reported.
+	prewarmHighlights(microscope, [
+		'Microscope_OnOffSwitch',
+		'Microscope_StageClips',
+		'Microscope_Nosepiece',
+		'Microscope_CoarseKnob',
+		'Microscope_FineKnob',
+		'Microscope_Diaphragm',
+		'Microscope_Eyepiece',
+		'Microscope_Stage',
+		'Microscope_Objective_4x',
+		'Microscope_Objective_10x',
+		'Microscope_Objective_40x',
+		'Microscope_Objective_100x',
+	], renderer, scene, camera);
 
 	applyStepHighlight();
 	rebuildCallout();
